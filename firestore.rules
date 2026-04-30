@@ -1,0 +1,85 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function currentUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isSuperAdmin() {
+      return isSignedIn() && currentUserData().isSuperAdmin == true;
+    }
+
+    function belongsToOrg(orgId) {
+      return isSignedIn() && (currentUserData().orgId == orgId || isSuperAdmin());
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // --- Collections ---
+
+    // 1. Users Collection
+    match /users/{userId} {
+      allow get: if isOwner(userId) || isSuperAdmin();
+      allow list: if isSuperAdmin();
+      allow create: if isOwner(userId);
+      allow update: if (isOwner(userId) || isSuperAdmin()) && 
+        incoming().diff(existing()).affectedKeys().hasOnly(['name', 'orgId', 'role', 'isSuperAdmin']);
+    }
+
+    // 2. Organizations
+    match /organizations/{orgId} {
+      allow get: if belongsToOrg(orgId);
+      allow list: if isSuperAdmin();
+      allow create: if isSignedIn(); // Any user can create an org
+      allow update: if belongsToOrg(orgId) && (currentUserData().role == 'owner' || isSuperAdmin());
+
+      // Sub-collections
+      match /contacts/{contactId} {
+        allow read, write: if belongsToOrg(orgId);
+      }
+      
+      match /chats/{chatId}/{document=**} {
+        allow read, write: if belongsToOrg(orgId);
+      }
+
+      match /automations/{automationId} {
+        allow read, write: if belongsToOrg(orgId);
+      }
+
+      match /broadcasts/{broadcastId} {
+        allow read, write: if belongsToOrg(orgId);
+      }
+    }
+
+    // 3. Usage Stats (Global)
+    match /usage_stats/{statId} {
+      allow read: if isSuperAdmin() || (isSignedIn() && existing().orgId == currentUserData().orgId);
+      allow write: if isSuperAdmin();
+    }
+  }
+}

@@ -1,0 +1,88 @@
+{
+  "entities": {
+    "Organization": {
+      "title": "Organization",
+      "description": "A business account (tenant) on the platform.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "ownerId": { "type": "string" },
+        "planId": { "type": "string", "enum": ["free", "pro", "enterprise"] },
+        "status": { "type": "string", "enum": ["active", "suspended", "trial"] },
+        "whatsappConnected": { "type": "boolean" },
+        "whatsappNumber": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "subscriptionId": { "type": "string" }
+      },
+      "required": ["name", "ownerId", "planId", "status"]
+    },
+    "User": {
+      "title": "User",
+      "description": "Platform user information.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "orgId": { "type": "string" },
+        "role": { "type": "string", "enum": ["owner", "admin", "agent"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "isSuperAdmin": { "type": "boolean" }
+      },
+      "required": ["uid", "email", "name"]
+    },
+    "Automation": {
+      "title": "Automation",
+      "description": "Tenant-isolated Marketing Automation and Workflows.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "draft", "paused"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "metrics": { "type": "object" },
+        "steps": { "type": "array" }
+      },
+      "required": ["name", "status"]
+    },
+    "Usage": {
+      "title": "Usage",
+      "description": "Monthly usage statistics for billing and limits.",
+      "type": "object",
+      "properties": {
+        "orgId": { "type": "string" },
+        "month": { "type": "string", "description": "YYYY-MM format" },
+        "messagesSent": { "type": "number" },
+        "contactsCreated": { "type": "number" },
+        "limitMessages": { "type": "number" }
+      }
+    }
+  },
+  "firestore": {
+    "/organizations/{orgId}": {
+      "schema": "Organization",
+      "description": "Tenant settings and subscription."
+    },
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles and org mapping."
+    },
+    "/organizations/{orgId}/contacts/{contactId}": {
+      "schema": "Contact",
+      "description": "Tenant-isolated contacts."
+    },
+    "/organizations/{orgId}/chats/{chatId}/messages/{messageId}": {
+      "schema": "Message",
+      "description": "Tenant-isolated messages."
+    },
+    "/organizations/{orgId}/automations/{automationId}": {
+      "schema": "Automation",
+      "description": "Tenant-isolated automations and workflows."
+    },
+    "/usage_stats/{statId}": {
+      "schema": "Usage",
+      "description": "Global usage tracking for billing."
+    }
+  }
+}
