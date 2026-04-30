@@ -1,108 +1,27 @@
-import { 
-  collection, 
-  onSnapshot, 
-  addDoc, 
-  updateDoc, 
-  doc, 
-  query, 
-  orderBy, 
-  serverTimestamp,
-  getDoc,
-  getDocs,
-  where
-} from 'firebase/firestore';
-import { db } from './firebaseConfig';
+// Legacy facade kept for backwards compatibility with components that
+// imported `whatsappService` directly. New code should import from
+// `services/api/*` modules — they enforce tenant scoping at every call.
 
-// Operation Types for error handling as per guidelines
-enum OperationType {
-  CREATE = 'create',
-  UPDATE = 'update',
-  DELETE = 'delete',
-  LIST = 'list',
-  GET = 'get',
-  WRITE = 'write',
-}
-
-function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
-  const errInfo = {
-    error: error instanceof Error ? error.message : String(error),
-    operationType,
-    path
-  };
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
-}
+import { contactsService } from './api/contactsService';
+import { broadcastsService } from './api/broadcastsService';
+import { messagesService } from './api/messagesService';
 
 export const whatsappService = {
-  // Contacts
-  subscribeToContacts: (callback: (contacts: any[]) => void) => {
-    const q = query(collection(db, 'contacts'), orderBy('lastActivity', 'desc'));
-    return onSnapshot(q, (snapshot) => {
-      const contacts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      callback(contacts);
-    }, (error) => handleFirestoreError(error, OperationType.GET, 'contacts'));
-  },
+  subscribeToContacts: (orgId: string, cb: (contacts: any[]) => void) =>
+    contactsService.subscribe(orgId, cb),
 
-  addContact: async (contactData: any) => {
-    try {
-      return await addDoc(collection(db, 'contacts'), {
-        ...contactData,
-        createdAt: serverTimestamp(),
-        lastActivity: serverTimestamp(),
-        tags: contactData.tags || []
-      });
-    } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, 'contacts');
-    }
-  },
+  addContact: (orgId: string, contactData: any) =>
+    contactsService.create(orgId, contactData),
 
-  // Broadcasts
-  createBroadcast: async (broadcastData: any) => {
-    try {
-      return await addDoc(collection(db, 'broadcasts'), {
-        ...broadcastData,
-        status: 'draft',
-        sentCount: 0,
-        openCount: 0,
-        createdAt: serverTimestamp()
-      });
-    } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, 'broadcasts');
-    }
-  },
+  createBroadcast: (orgId: string, data: any) =>
+    broadcastsService.create(orgId, data),
 
-  subscribeToBroadcasts: (callback: (broadcasts: any[]) => void) => {
-    const q = query(collection(db, 'broadcasts'), orderBy('createdAt', 'desc'));
-    return onSnapshot(q, (snapshot) => {
-      const broadcasts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      callback(broadcasts);
-    }, (error) => handleFirestoreError(error, OperationType.GET, 'broadcasts'));
-  },
+  subscribeToBroadcasts: (orgId: string, cb: (b: any[]) => void) =>
+    broadcastsService.subscribe(orgId, cb),
 
-  // Real-time Chat
-  subscribeToMessages: (chatId: string, callback: (messages: any[]) => void) => {
-    const path = `chats/${chatId}/messages`;
-    const q = query(collection(db, path), orderBy('createdAt', 'asc'));
-    return onSnapshot(q, (snapshot) => {
-      const messages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      callback(messages);
-    }, (error) => handleFirestoreError(error, OperationType.GET, path));
-  },
+  subscribeToMessages: (orgId: string, chatId: string, cb: (msgs: any[]) => void) =>
+    messagesService.subscribeMessages(orgId, chatId, cb),
 
-  sendMessage: async (chatId: string, messageData: any) => {
-    const path = `chats/${chatId}/messages`;
-    try {
-      await addDoc(collection(db, path), {
-        ...messageData,
-        status: 'sent',
-        createdAt: serverTimestamp()
-      });
-      // Update last activity on contact
-      await updateDoc(doc(db, 'contacts', chatId), {
-        lastActivity: serverTimestamp()
-      });
-    } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, path);
-    }
-  }
+  sendMessage: (orgId: string, chatId: string, messageData: any) =>
+    messagesService.appendMessage(orgId, chatId, 'outbound', messageData),
 };
