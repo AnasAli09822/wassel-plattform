@@ -1,13 +1,15 @@
 rules_version = '2';
+
+// Wassel multi-tenant Firestore rules.
+// Contract: every operational record lives under /organizations/{orgId}/...
+// and is gated by `belongsToOrg(orgId)`. Top-level `users` is gated per-uid.
+// Server-only collections (system_integrations, webhook_events) are denied
+// at the client edge and reachable only via the Admin SDK on the backend.
+
 service cloud.firestore {
   match /databases/{database}/documents {
-    // 0. Global Safety Net
-    match /{document=**} {
-      allow read, write: if false;
-    }
 
-    // --- Helpers ---
-    
+    // ---- Helpers ----
     function isSignedIn() {
       return request.auth != null;
     }
@@ -16,70 +18,142 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
-    function currentUserData() {
+    function userDoc() {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
 
     function isSuperAdmin() {
-      return isSignedIn() && currentUserData().isSuperAdmin == true;
+      return isSignedIn() && userDoc().isSuperAdmin == true;
     }
 
     function belongsToOrg(orgId) {
-      return isSignedIn() && (currentUserData().orgId == orgId || isSuperAdmin());
+      return isSignedIn() && (userDoc().orgId == orgId || isSuperAdmin());
     }
 
-    function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    function hasOrgRole(orgId, roles) {
+      return belongsToOrg(orgId) && (userDoc().role in roles || isSuperAdmin());
     }
 
-    function incoming() {
-      return request.resource.data;
+    function notChanging(field) {
+      return !(field in request.resource.data.diff(resource.data).affectedKeys());
     }
 
-    function existing() {
-      return resource.data;
+    function tenantStamped(orgId) {
+      // Defensive: any new doc must carry the matching orgId field.
+      return request.resource.data.orgId == orgId;
     }
 
-    // --- Collections ---
-
-    // 1. Users Collection
+    // ---- Users ----
     match /users/{userId} {
-      allow get: if isOwner(userId) || isSuperAdmin();
-      allow list: if isSuperAdmin();
-      allow create: if isOwner(userId);
-      allow update: if (isOwner(userId) || isSuperAdmin()) && 
-        incoming().diff(existing()).affectedKeys().hasOnly(['name', 'orgId', 'role', 'isSuperAdmin']);
+      allow get:    if isOwner(userId) || isSuperAdmin();
+      allow list:   if isSuperAdmin();
+      allow create: if isOwner(userId)
+                    && request.resource.data.uid == userId;
+      // Users update safe fields only; role / isSuperAdmin are admin-only.
+      allow update: if (isOwner(userId)
+                    && request.resource.data.diff(resource.data).affectedKeys()
+                         .hasOnly(['name', 'photoURL', 'orgId']))
+                    || isSuperAdmin();
+      allow delete: if isSuperAdmin();
     }
 
-    // 2. Organizations
+    // ---- Organizations ----
     match /organizations/{orgId} {
-      allow get: if belongsToOrg(orgId);
-      allow list: if isSuperAdmin();
-      allow create: if isSignedIn(); // Any user can create an org
-      allow update: if belongsToOrg(orgId) && (currentUserData().role == 'owner' || isSuperAdmin());
+      allow get:    if belongsToOrg(orgId);
+      allow list:   if isSuperAdmin();
+      allow create: if isSignedIn()
+                    && request.resource.data.ownerId == request.auth.uid;
+      // Owners can update org settings; status / planId / token ref are
+      // changed only via Super Admin or backend (Admin SDK bypasses rules).
+      allow update: if (hasOrgRole(orgId, ['owner'])
+                       && notChanging('status')
+                       && notChanging('whatsappAccessTokenRef'))
+                    || isSuperAdmin();
+      allow delete: if isSuperAdmin();
 
-      // Sub-collections
+      // ---- Contacts ----
       match /contacts/{contactId} {
-        allow read, write: if belongsToOrg(orgId);
-      }
-      
-      match /chats/{chatId}/{document=**} {
-        allow read, write: if belongsToOrg(orgId);
-      }
-
-      match /automations/{automationId} {
-        allow read, write: if belongsToOrg(orgId);
+        allow read:   if belongsToOrg(orgId);
+        allow create: if hasOrgRole(orgId, ['owner', 'admin', 'agent'])
+                      && tenantStamped(orgId);
+        allow update: if hasOrgRole(orgId, ['owner', 'admin', 'agent']);
+        allow delete: if hasOrgRole(orgId, ['owner', 'admin']);
       }
 
-      match /broadcasts/{broadcastId} {
-        allow read, write: if belongsToOrg(orgId);
+      // ---- Chats + nested messages ----
+      match /chats/{chatId} {
+        allow read:   if belongsToOrg(orgId);
+        allow create: if hasOrgRole(orgId, ['owner', 'admin', 'agent'])
+                      && tenantStamped(orgId);
+        allow update: if hasOrgRole(orgId, ['owner', 'admin', 'agent']);
+        allow delete: if hasOrgRole(orgId, ['owner', 'admin']);
+
+        match /messages/{messageId} {
+          allow read:   if belongsToOrg(orgId);
+          allow create: if hasOrgRole(orgId, ['owner', 'admin', 'agent'])
+                        && tenantStamped(orgId)
+                        && request.resource.data.direction in ['inbound', 'outbound'];
+          allow update: if hasOrgRole(orgId, ['owner', 'admin', 'agent']);
+          allow delete: if false;
+        }
+      }
+
+      // ---- Automations ----
+      match /automations/{autoId} {
+        allow read:   if belongsToOrg(orgId);
+        allow create: if hasOrgRole(orgId, ['owner', 'admin'])
+                      && tenantStamped(orgId);
+        allow update: if hasOrgRole(orgId, ['owner', 'admin']);
+        allow delete: if hasOrgRole(orgId, ['owner', 'admin']);
+      }
+
+      // Run logs are write-locked from clients to preserve the audit trail.
+      match /automation_runs/{runId} {
+        allow read:  if belongsToOrg(orgId);
+        allow write: if false;
+      }
+
+      // ---- Broadcasts ----
+      match /broadcasts/{bId} {
+        allow read:   if belongsToOrg(orgId);
+        allow create: if hasOrgRole(orgId, ['owner', 'admin'])
+                      && tenantStamped(orgId);
+        allow update: if hasOrgRole(orgId, ['owner', 'admin']);
+        allow delete: if hasOrgRole(orgId, ['owner', 'admin']);
+      }
+
+      // ---- Templates ----
+      match /templates/{tId} {
+        allow read:   if belongsToOrg(orgId);
+        allow create: if hasOrgRole(orgId, ['owner', 'admin'])
+                      && tenantStamped(orgId);
+        allow update: if hasOrgRole(orgId, ['owner', 'admin']);
+        allow delete: if hasOrgRole(orgId, ['owner', 'admin']);
       }
     }
 
-    // 3. Usage Stats (Global)
+    // ---- Usage stats ----
     match /usage_stats/{statId} {
-      allow read: if isSuperAdmin() || (isSignedIn() && existing().orgId == currentUserData().orgId);
-      allow write: if isSuperAdmin();
+      allow get:   if isSuperAdmin()
+                   || (isSignedIn() && resource.data.orgId == userDoc().orgId);
+      allow list:  if isSuperAdmin();
+      // Quota counters are owned by the backend.
+      allow write: if false;
+    }
+
+    // ---- Server-only collections ----
+    match /system_integrations/{id} {
+      allow read, write: if isSuperAdmin();
+    }
+
+    match /webhook_events/{id} {
+      allow read:  if isSuperAdmin();
+      allow write: if false;
+    }
+
+    // ---- Default deny (catch-all) ----
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }
