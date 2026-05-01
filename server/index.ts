@@ -10,10 +10,13 @@
 
 import 'dotenv/config';
 import express, { Request, Response, NextFunction } from 'express';
+import authRouter from './routes/auth';
 import healthRouter from './routes/health';
 import webhooksRouter from './routes/webhooks';
 import automationsRouter from './routes/automations';
 import broadcastsRouter from './routes/broadcasts';
+import organizationsRouter from './routes/organizations';
+import teamRouter from './routes/team';
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
@@ -61,9 +64,12 @@ app.use((req, res, next) => {
 });
 
 app.use('/api/health', healthRouter);
+app.use('/api/auth', authRouter);
 app.use('/api/webhooks', webhooksRouter);
 app.use('/api/automations', automationsRouter);
 app.use('/api/broadcasts', broadcastsRouter);
+app.use('/api/organizations', organizationsRouter);
+app.use('/api/team', teamRouter);
 
 app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
   console.error('[server] unhandled error', err);

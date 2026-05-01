@@ -8,6 +8,29 @@ export interface AuthedRequest extends Request {
     orgId: string;
     role: 'owner' | 'admin' | 'agent';
     isSuperAdmin: boolean;
+    twoFactorEnabled?: boolean;
+  };
+}
+
+interface VerifiedToken {
+  uid: string;
+  email?: string;
+  name?: string;
+  picture?: string;
+}
+
+export async function verifyBearerToken(req: Request): Promise<VerifiedToken> {
+  const header = req.header('authorization') || '';
+  const match = /^Bearer\s+(.+)$/.exec(header);
+  if (!match) {
+    throw new Error('Missing bearer token.');
+  }
+  const decoded = await adminAuth.verifyIdToken(match[1]);
+  return {
+    uid: decoded.uid,
+    email: decoded.email,
+    name: decoded.name,
+    picture: decoded.picture,
   };
 }
 
@@ -20,11 +43,7 @@ export async function requireAuth(
   next: NextFunction,
 ) {
   try {
-    const header = req.header('authorization') || '';
-    const match = /^Bearer\s+(.+)$/.exec(header);
-    if (!match) return res.status(401).json({ error: 'Missing bearer token.' });
-
-    const decoded = await adminAuth.verifyIdToken(match[1]);
+    const decoded = await verifyBearerToken(req);
     const userSnap = await adminDb.doc(`users/${decoded.uid}`).get();
     if (!userSnap.exists) {
       return res.status(403).json({ error: 'User profile not found.' });
@@ -39,6 +58,7 @@ export async function requireAuth(
       orgId: profile.orgId,
       role: profile.role || 'agent',
       isSuperAdmin: !!profile.isSuperAdmin,
+      twoFactorEnabled: !!profile.twoFactorEnabled,
     };
     next();
   } catch (e) {
@@ -70,4 +90,8 @@ export function requireRole(roles: Array<'owner' | 'admin' | 'agent'>) {
     }
     next();
   };
+}
+
+export function resolveTargetOrgId(req: AuthedRequest): string {
+  return (req.body?.orgId || req.params?.orgId || req.query?.orgId || req.auth?.orgId) as string;
 }

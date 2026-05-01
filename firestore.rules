@@ -47,13 +47,14 @@ service cloud.firestore {
     match /users/{userId} {
       allow get:    if isOwner(userId) || isSuperAdmin();
       allow list:   if isSuperAdmin();
-      allow create: if isOwner(userId)
-                    && request.resource.data.uid == userId;
+      allow create: if false;
       // Users update safe fields only; role / isSuperAdmin are admin-only.
       allow update: if (isOwner(userId)
                     && request.resource.data.diff(resource.data).affectedKeys()
-                         .hasOnly(['name', 'photoURL', 'orgId']))
-                    || isSuperAdmin();
+                         .hasOnly(['name', 'photoURL', 'twoFactorEnabled']))
+                    || (isSuperAdmin()
+                    && notChanging('uid')
+                    && notChanging('isSuperAdmin'));
       allow delete: if isSuperAdmin();
     }
 
@@ -61,12 +62,16 @@ service cloud.firestore {
     match /organizations/{orgId} {
       allow get:    if belongsToOrg(orgId);
       allow list:   if isSuperAdmin();
-      allow create: if isSignedIn()
-                    && request.resource.data.ownerId == request.auth.uid;
+      allow create: if false;
       // Owners can update org settings; status / planId / token ref are
       // changed only via Super Admin or backend (Admin SDK bypasses rules).
       allow update: if (hasOrgRole(orgId, ['owner'])
                        && notChanging('status')
+                       && notChanging('planId')
+                       && notChanging('ownerId')
+                       && notChanging('n8nWebhookOverride')
+                       && notChanging('whatsappPhoneNumberId')
+                       && notChanging('whatsappBusinessAccountId')
                        && notChanging('whatsappAccessTokenRef'))
                     || isSuperAdmin();
       allow delete: if isSuperAdmin();
@@ -129,6 +134,13 @@ service cloud.firestore {
                       && tenantStamped(orgId);
         allow update: if hasOrgRole(orgId, ['owner', 'admin']);
         allow delete: if hasOrgRole(orgId, ['owner', 'admin']);
+      }
+
+      match /invitations/{inviteId} {
+        allow read:   if hasOrgRole(orgId, ['owner', 'admin']) || isSuperAdmin();
+        allow create: if false;
+        allow update: if false;
+        allow delete: if false;
       }
     }
 

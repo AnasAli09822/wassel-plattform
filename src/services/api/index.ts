@@ -5,4 +5,5 @@ export { automationsService } from './automationsService';
 export { broadcastsService } from './broadcastsService';
 export { templatesService } from './templatesService';
 export { usageService } from './usageService';
+export { teamService } from './teamService';
 export { n8nDispatcher } from './n8nDispatcher';
