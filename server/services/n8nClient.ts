@@ -36,7 +36,9 @@ export class N8nClient {
   }
 
   private sign(body: string): string {
-    if (!this.signingSecret) return '';
+    if (!this.signingSecret) {
+      throw new Error('N8N_SIGNING_SECRET is required.');
+    }
     return crypto.createHmac('sha256', this.signingSecret).update(body).digest('hex');
   }
 
@@ -44,6 +46,9 @@ export class N8nClient {
     const url = input.webhookOverride || this.masterUrl;
     if (!url) {
       throw new Error('No n8n webhook URL configured (N8N_MASTER_WEBHOOK_URL).');
+    }
+    if (!this.signingSecret) {
+      throw new Error('N8N_SIGNING_SECRET is required.');
     }
     const body = JSON.stringify({
       version: 1,

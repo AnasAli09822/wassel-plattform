@@ -8,8 +8,9 @@ import {
   browserLocalPersistence
 } from 'firebase/auth';
 import { auth } from './firebaseConfig';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc } from 'firebase/firestore';
 import { db } from './firebaseConfig';
+import { apiFetch } from './api/client';
 
 // Operation Types for error handling
 enum OperationType {
@@ -41,50 +42,7 @@ export const authService = {
       
       const result = await signInWithPopup(auth, provider);
       const user = result.user;
-      
-      // Sync user profile to Firestore
-      const userDocRef = doc(db, 'users', user.uid);
-      let userDoc;
-      
-      try {
-        userDoc = await getDoc(userDocRef);
-      } catch (error) {
-        handleFirestoreError(error, OperationType.GET, `users/${user.uid}`);
-      }
-      
-      if (!userDoc?.exists()) {
-        try {
-          const orgId = user.uid; // Org Id logic
-          const profile = {
-            uid: user.uid,
-            name: user.displayName || 'User',
-            email: user.email || '',
-            photoURL: user.photoURL || '',
-            role: 'owner',
-            orgId: orgId,
-            createdAt: new Date().toISOString(),
-            isSuperAdmin: user.email === 'alhajans664@gmail.com'
-          };
-          await setDoc(userDocRef, profile);
-          
-          // Also create default organization
-          const orgRef = doc(db, 'organizations', orgId);
-          await setDoc(orgRef, {
-            id: orgId,
-            name: user.displayName ? `${user.displayName}'s Org` : 'My Organization',
-            ownerId: user.uid,
-            planId: 'free',
-            status: 'active',
-            whatsappConnected: false,
-            createdAt: new Date().toISOString()
-          });
-
-          return user;
-        } catch (error) {
-          handleFirestoreError(error, OperationType.WRITE, `users/${user.uid}`);
-        }
-      }
-      
+      await apiFetch<{ ok: boolean; profile: unknown }>('/auth/bootstrap', { method: 'POST' });
       return user;
     } catch (error) {
       console.error('Login Error:', error);

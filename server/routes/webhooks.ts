@@ -34,7 +34,10 @@ router.post('/whatsapp', async (req: Request, res: Response) => {
   const raw = (req as any).rawBody as Buffer | undefined;
   const sig = req.header('x-hub-signature-256');
   const appSecret = process.env.WHATSAPP_APP_SECRET || '';
-  const valid = appSecret ? verifyMetaSignature(raw ?? '', sig, appSecret) : true;
+  if (!appSecret) {
+    return res.status(503).json({ error: 'WHATSAPP_APP_SECRET is not configured.' });
+  }
+  const valid = verifyMetaSignature(raw ?? '', sig, appSecret);
 
   const eventDoc = adminDb.collection('webhook_events').doc();
   await eventDoc.set({
@@ -167,7 +170,10 @@ router.post('/n8n', async (req: Request, res: Response) => {
   const raw = (req as any).rawBody as Buffer | undefined;
   const sig = req.header('x-wassel-signature');
   const secret = process.env.N8N_SIGNING_SECRET || '';
-  const valid = secret ? verifyHmac(raw ?? '', sig, secret) : true;
+  if (!secret) {
+    return res.status(503).json({ error: 'N8N_SIGNING_SECRET is not configured.' });
+  }
+  const valid = verifyHmac(raw ?? '', sig, secret);
 
   const eventDoc = adminDb.collection('webhook_events').doc();
   await eventDoc.set({

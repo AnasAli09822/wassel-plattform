@@ -39,6 +39,7 @@ import { collection, getDocs, query, orderBy, updateDoc, doc, where, setDoc, del
 import { db } from '../services/firebaseConfig';
 import { useAuth } from '../components/AuthProvider';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Legend } from 'recharts';
+import { teamService } from '../services/api/teamService';
 
 const activityData = [
   { time: '00:00', requests: 4000, errors: 24 },
@@ -548,6 +549,7 @@ export default function SuperAdminPage() {
 
 function ManageOrgUsersView({ org, onBack }: { key?: import('react').Key; org: any; onBack: () => void }) {
   const [users, setUsers] = useState<any[]>([]);
+  const [invitations, setInvitations] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   
@@ -563,9 +565,9 @@ function ManageOrgUsersView({ org, onBack }: { key?: import('react').Key; org: a
   const fetchUsers = async () => {
     setLoading(true);
     try {
-      const q = query(collection(db, 'users'), where('orgId', '==', org._id));
-      const snapshot = await getDocs(q);
-      setUsers(snapshot.docs.map(doc => ({ _id: doc.id, ...doc.data() })));
+      const payload = await teamService.list(org._id);
+      setUsers(payload.users.map((member) => ({ _id: member.id, ...member })));
+      setInvitations(payload.invitations || []);
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -579,14 +581,7 @@ function ManageOrgUsersView({ org, onBack }: { key?: import('react').Key; org: a
       if (editingId) {
         await updateDoc(doc(db, 'users', editingId), { ...formData });
       } else {
-        const newUid = Math.random().toString(36).substring(2, 15);
-        await setDoc(doc(db, 'users', newUid), {
-          ...formData,
-          uid: newUid,
-          orgId: org._id,
-          createdAt: new Date().toISOString(),
-          isSuperAdmin: false
-        });
+        await teamService.invite(formData as any, org._id);
       }
       setIsModalOpen(false);
       setEditingId(null);
@@ -600,7 +595,7 @@ function ManageOrgUsersView({ org, onBack }: { key?: import('react').Key; org: a
   const handleDeleteUser = async (id: string) => {
     if (!confirm('هل أنت متأكد من حذف هذا المستخدم نهائياً؟')) return;
     try {
-      await deleteDoc(doc(db, 'users', id));
+      await teamService.removeMember(id, org._id);
       fetchUsers();
     } catch (e: any) {
       setError(e.message);
@@ -647,6 +642,12 @@ function ManageOrgUsersView({ org, onBack }: { key?: import('react').Key; org: a
       {error && (
         <div className="p-4 bg-red-50 border-b border-red-100 text-red-600 text-sm font-bold">
           {error}
+        </div>
+      )}
+
+      {invitations.length > 0 && (
+        <div className="border-b border-amber-100 bg-amber-50 px-6 py-4 text-sm font-bold text-amber-900">
+          دعوات معلقة: {invitations.length}
         </div>
       )}
 

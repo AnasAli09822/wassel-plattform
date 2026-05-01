@@ -1,5 +1,5 @@
 import { Router, Response } from 'express';
-import { requireAuth, requireOrgScope, AuthedRequest } from '../middleware/auth';
+import { requireAuth, requireOrgScope, requireRole, AuthedRequest } from '../middleware/auth';
 import { automationEngine } from '../services/automationEngine';
 import { adminDb, ServerTimestamp } from '../firebaseAdmin';
 import { FieldValue } from 'firebase-admin/firestore';
@@ -9,7 +9,12 @@ const router = Router();
 // Manually trigger an automation (or fan out to all matching active ones).
 // Used by the dashboard UI to "test" an automation, and by the broadcast
 // pipeline to enqueue per-contact runs.
-router.post('/dispatch', requireAuth, requireOrgScope, async (req: AuthedRequest, res: Response) => {
+router.post(
+  '/dispatch',
+  requireAuth,
+  requireOrgScope,
+  requireRole(['owner', 'admin']),
+  async (req: AuthedRequest, res: Response) => {
   const { triggerType, payload, contactId, automationId } = req.body || {};
   const orgId = (req as any).orgId as string;
 
@@ -38,7 +43,7 @@ router.post('/dispatch', requireAuth, requireOrgScope, async (req: AuthedRequest
 // Send a broadcast: expand audience -> create runs for each recipient.
 // Exposed via the broadcastsRouter; this handler is shared.
 export const broadcastSendHandler = async (req: AuthedRequest, res: Response) => {
-  const orgId = req.auth!.orgId;
+  const orgId = ((req as any).orgId as string) || req.auth!.orgId;
   const { broadcastId } = req.params;
 
   const bRef = adminDb.doc(`organizations/${orgId}/broadcasts/${broadcastId}`);

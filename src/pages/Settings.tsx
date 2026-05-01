@@ -27,8 +27,10 @@ import { useState, useEffect } from 'react';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../components/AuthProvider';
-import { doc, getDoc, updateDoc, collection, query, where, getDocs, setDoc, deleteDoc } from 'firebase/firestore';
+import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '../services/firebaseConfig';
+import { organizationService } from '../services/api/organizationService';
+import { teamService } from '../services/api/teamService';
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState('account');
@@ -37,6 +39,8 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
+  const [workspaceUsage, setWorkspaceUsage] = useState<any>(null);
+  const [pendingInvitations, setPendingInvitations] = useState(0);
   const [formData, setFormData] = useState({
     userName: '',
     orgName: ''
@@ -46,12 +50,14 @@ export default function SettingsPage() {
     async function fetchOrg() {
       if (profile?.orgId) {
         try {
-          const orgDoc = await getDoc(doc(db, 'organizations', profile.orgId));
-          if (orgDoc.exists()) {
-            setOrg(orgDoc.data());
+          const payload = await organizationService.getCurrent();
+          if (payload.org) {
+            setOrg(payload.org);
+            setWorkspaceUsage(payload.usage);
+            setPendingInvitations(payload.security?.pendingInvitations || 0);
             setFormData({
               userName: profile?.name || user?.displayName || '',
-              orgName: orgDoc.data().name || ''
+              orgName: payload.org.name || ''
             });
           }
         } catch (error) {
@@ -89,7 +95,7 @@ export default function SettingsPage() {
         name: formData.userName
       });
       if (profile.role === 'owner') {
-        await updateDoc(doc(db, 'organizations', profile.orgId), {
+        await organizationService.updateCurrent({
           name: formData.orgName
         });
       }
@@ -304,9 +310,9 @@ export default function SettingsPage() {
                           const currentLimits = limits[org?.planId as keyof typeof limits] || limits.free;
                           
                           const usage = {
-                            messages: org?.usage?.messages || 0,
-                            contacts: org?.usage?.contacts || 0,
-                            auto: org?.usage?.auto || 0
+                            messages: workspaceUsage?.messagesSent || 0,
+                            contacts: workspaceUsage?.contactsCreated || 0,
+                            auto: workspaceUsage?.automationsRun || 0
                           };
 
                           const msgPercent = Math.min(100, Math.round((usage.messages / currentLimits.messages) * 100));
@@ -362,28 +368,18 @@ export default function SettingsPage() {
 
                     <div className="flex gap-4">
                       <button 
-                        onClick={async () => {
-                          if (!profile?.orgId) return;
-                          setIsSaving(true);
-                          await updateDoc(doc(db, 'organizations', profile.orgId), { planId: 'enterprise' });
-                          setOrg({ ...org, planId: 'enterprise' });
-                          setIsSaving(false);
-                        }}
-                        disabled={isSaving || org?.planId === 'enterprise'}
+                        type="button"
+                        onClick={() => window.open('mailto:billing@wassel.app?subject=Enterprise%20Upgrade%20Request', '_self')}
+                        disabled={org?.planId === 'enterprise'}
                         className="flex-1 bg-white border-2 border-gray-100 p-6 rounded-[2rem] hover:border-brand/40 transition-all text-center group disabled:opacity-50"
                       >
                         <p className="text-xs font-black text-gray-400 mb-2">ترقية الخطة</p>
                         <p className="text-lg font-black text-brand group-hover:scale-105 transition-transform">{org?.planId === 'enterprise' ? 'أنت على أعلى خطة' : 'الخطة المؤسسية (Enterprise)'}</p>
                       </button>
-                      <button 
-                        onClick={async () => {
-                          if (!profile?.orgId) return;
-                          setIsSaving(true);
-                          await updateDoc(doc(db, 'organizations', profile.orgId), { planId: 'free' });
-                          setOrg({ ...org, planId: 'free' });
-                          setIsSaving(false);
-                        }}
-                        disabled={isSaving || org?.planId === 'free'}
+                      <button
+                        type="button"
+                        onClick={() => window.open('mailto:billing@wassel.app?subject=Plan%20Downgrade%20Request', '_self')}
+                        disabled={org?.planId === 'free'}
                         className="flex-1 bg-white border-2 border-gray-100 p-6 rounded-[2rem] hover:border-red-100 transition-all text-center group disabled:opacity-50"
                       >
                         <p className="text-xs font-black text-gray-400 mb-2">إلغاء الاشتراك</p>
@@ -413,8 +409,7 @@ export default function SettingsPage() {
                             <button className="w-full bg-brand text-white py-4 rounded-2xl font-black text-sm shadow-xl shadow-brand/10">إعداد القوالب (Templates)</button>
                             <button 
                               onClick={async () => {
-                                if (!profile?.orgId) return;
-                                await updateDoc(doc(db, 'organizations', profile.orgId), { whatsappConnected: false, whatsappNumber: '' });
+                                await organizationService.updateCurrent({ whatsappNumber: '' as any });
                                 setOrg({ ...org, whatsappConnected: false, whatsappNumber: '' });
                               }}
                               className="w-full bg-gray-50 text-red-500 py-4 rounded-2xl font-black text-sm hover:bg-red-50 transition-colors"
@@ -435,10 +430,9 @@ export default function SettingsPage() {
                           <div className="pt-8 w-full max-w-sm space-y-3">
                             <button 
                               onClick={async () => {
-                                if (!profile?.orgId) return;
                                 const num = prompt("أدخل رقم الواتساب الخاص بك (مثال: +966501234567)");
                                 if (num) {
-                                  await updateDoc(doc(db, 'organizations', profile.orgId), { whatsappConnected: true, whatsappNumber: num });
+                                  await organizationService.updateCurrent({ whatsappNumber: num as any });
                                   setOrg({ ...org, whatsappConnected: true, whatsappNumber: num });
                                 }
                               }}
@@ -469,6 +463,7 @@ export default function SettingsPage() {
 
 function TeamSettings({ orgId, currentRole }: { orgId: string, currentRole: string }) {
   const [users, setUsers] = useState<any[]>([]);
+  const [invitations, setInvitations] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   
@@ -485,9 +480,9 @@ function TeamSettings({ orgId, currentRole }: { orgId: string, currentRole: stri
   const fetchUsers = async () => {
     setLoading(true);
     try {
-      const q = query(collection(db, 'users'), where('orgId', '==', orgId));
-      const snapshot = await getDocs(q);
-      setUsers(snapshot.docs.map(doc => ({ _id: doc.id, ...doc.data() })));
+      const payload = await teamService.list(orgId);
+      setUsers(payload.users.map((member) => ({ _id: member.id, ...member })));
+      setInvitations(payload.invitations || []);
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -504,16 +499,9 @@ function TeamSettings({ orgId, currentRole }: { orgId: string, currentRole: stri
     
     try {
       if (editingId) {
-        await updateDoc(doc(db, 'users', editingId), { ...formData });
+        await teamService.updateMember(editingId, formData as any, orgId);
       } else {
-        const newUid = Math.random().toString(36).substring(2, 15);
-        await setDoc(doc(db, 'users', newUid), {
-          ...formData,
-          uid: newUid,
-          orgId: orgId,
-          createdAt: new Date().toISOString(),
-          isSuperAdmin: false
-        });
+        await teamService.invite(formData as any, orgId);
       }
       setIsModalOpen(false);
       setEditingId(null);
@@ -531,7 +519,7 @@ function TeamSettings({ orgId, currentRole }: { orgId: string, currentRole: stri
     }
     if (!confirm('هل أنت متأكد من حذف هذا المستخدم؟')) return;
     try {
-      await deleteDoc(doc(db, 'users', id));
+      await teamService.removeMember(id, orgId);
       fetchUsers();
     } catch (e: any) {
       setError(e.message);
@@ -569,6 +557,15 @@ function TeamSettings({ orgId, currentRole }: { orgId: string, currentRole: stri
           <div className="p-4 bg-red-50 border border-red-100 rounded-2xl text-red-600 text-sm font-bold flex items-center gap-3">
             <AlertCircle size={18} />
             {error}
+          </div>
+        )}
+
+        {invitations.length > 0 && (
+          <div className="rounded-2xl border border-amber-100 bg-amber-50/70 p-4">
+            <p className="text-sm font-black text-amber-900">دعوات معلقة: {invitations.length}</p>
+            <p className="mt-1 text-xs font-bold text-amber-700">
+              {invitations.slice(0, 3).map((invite) => invite.email).join('، ')}
+            </p>
           </div>
         )}
 

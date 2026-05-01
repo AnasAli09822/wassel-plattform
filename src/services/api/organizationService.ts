@@ -3,8 +3,13 @@ import { db } from '../firebaseConfig';
 import { paths } from '../firestorePaths';
 import { logFirestoreError, OperationType } from '../errors';
 import type { Organization } from '../../types/schema';
+import { apiFetch } from './client';
 
 export const organizationService = {
+  async getCurrent(): Promise<{ org: Organization | null; usage: any; security: any }> {
+    return apiFetch('/organizations/current');
+  },
+
   async get(orgId: string): Promise<Organization | null> {
     const path = paths.organization(orgId);
     try {
@@ -33,5 +38,12 @@ export const organizationService = {
     } catch (e) {
       logFirestoreError(e, OperationType.UPDATE, path);
     }
+  },
+
+  async updateCurrent(patch: Partial<Organization>): Promise<{ ok: boolean; org: Organization }> {
+    return apiFetch('/organizations/current', {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    });
   },
 };
