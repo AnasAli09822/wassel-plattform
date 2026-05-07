@@ -1,10 +1,9 @@
 {
-  "projectId": "gen-lang-client-0398551843",
-  "appId": "1:853831011137:web:c4496ef3d6660b8c07afc0",
-  "apiKey": "AIzaSyAt4cIZl3aRRJQEiqRdE_9m8-4sdajXqgE",
-  "authDomain": "gen-lang-client-0398551843.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-0a136d12-411b-4802-adf1-e34f3ee3ad78",
-  "storageBucket": "gen-lang-client-0398551843.firebasestorage.app",
-  "messagingSenderId": "853831011137",
+  "projectId": "wassel-452cf",
+  "appId": "1:181692343892:web:ee09d01db25e8dbf6f2fc1",
+  "apiKey": "AIzaSyA82BLyOPyeUiYqdJSyzTXd0f654VGKqF8",
+  "authDomain": "wassel-452cf.firebaseapp.com",
+  "storageBucket": "wassel-452cf.firebasestorage.app",
+  "messagingSenderId": "181692343892",
   "measurementId": ""
 }
