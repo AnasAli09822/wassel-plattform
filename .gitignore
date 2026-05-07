@@ -6,3 +6,9 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Firebase service-account credentials — NEVER commit
+firebase-admin.json
+firebase-admin-*.json
+service-account*.json
+**/serviceAccountKey*.json
